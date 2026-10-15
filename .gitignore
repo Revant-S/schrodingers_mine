@@ -1,0 +1,44 @@
+# Build output (go build names the binary after the module)
+/Schrodingers_Mine
+/bin/
+/dist/
+*.exe
+*.exe~
+*.dll
+*.so
+*.dylib
+
+# Test and profiling artifacts
+*.test
+*.out
+coverage.*
+*.prof
+*.pprof
+
+# Go workspace files
+go.work
+go.work.sum
+
+# Environment / secrets
+.env
+.env.*
+!.env.example
+
+# GoLand / JetBrains (keep shared project config, drop per-user state)
+.idea/workspace.xml
+.idea/tasks.xml
+.idea/usage.statistics.xml
+.idea/shelf/
+.idea/httpRequests/
+.idea/dataSources/
+.idea/dataSources.local.xml
+*.iws
+
+# OS / editor junk
+.DS_Store
+Thumbs.db
+*.swp
+*~
+
+# Logs
+*.log
