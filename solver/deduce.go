@@ -4,6 +4,8 @@ import (
 	"Schrodingers_Mine/protocol"
 	"Schrodingers_Mine/utils/queue"
 	"context"
+	"fmt"
+	"strings"
 )
 
 // Deduce
@@ -21,11 +23,12 @@ type square struct {
 }
 
 type Deduce struct {
-	safeSquares  *queue.Queue[square]
-	rows         int
-	cols         int
-	mines        int
-	minedSquares map[square]struct{}
+	safeSquares   *queue.Queue[square]
+	rows          int
+	cols          int
+	mines         int
+	minedSquares  map[square]struct{}
+	relaxedValues map[square]int
 }
 
 func (d *Deduce) NewGame(rows, cols, mines int) {
@@ -34,6 +37,7 @@ func (d *Deduce) NewGame(rows, cols, mines int) {
 	d.cols = cols
 	d.mines = mines
 	d.minedSquares = make(map[square]struct{})
+	d.relaxedValues = make(map[square]int)
 }
 
 func (d *Deduce) markMined(sq square) {
@@ -79,9 +83,17 @@ func (d *Deduce) neighbours(board [][]int, sq square) []square {
 func (d *Deduce) relaxNeighbours(board [][]int, sq square) {
 	for idx := 0; idx < 8; idx++ {
 		nb := square{row: sq.row + drow[idx], col: sq.col + dcol[idx]}
-		if d.isValidCoordinate(nb) && d.containsNumb(board, nb) {
+		_, mined := d.minedSquares[nb]
+		if d.isValidCoordinate(nb) && d.containsNumb(board, nb) && !mined {
 			board[nb.row][nb.col] -= 1
+			d.relaxedValues[nb] = board[nb.row][nb.col]
 		}
+	}
+}
+
+func (d *Deduce) updateRelaxedSquares(board [][]int) {
+	for sq, val := range d.relaxedValues {
+		board[sq.row][sq.col] = val
 	}
 }
 
@@ -90,7 +102,7 @@ func (d *Deduce) NextMove(ctx context.Context, st *protocol.State) (row, col int
 		return 0, 0, nil
 	}
 	board := st.Board
-	// if safe squares are known, and they are still available play them 1st
+	d.updateRelaxedSquares(board)
 	for {
 		front, ok := d.safeSquares.Pop()
 		if !ok {
@@ -100,9 +112,9 @@ func (d *Deduce) NextMove(ctx context.Context, st *protocol.State) (row, col int
 			return front.row, front.col, nil
 		}
 	}
+
 	numbered := make([]square, 0, d.rows*d.cols)
-	// go through the whole board and check for the squares where the number is equal to
-	// number of its covered inputs
+	relaxationSquares := make([]square, 0, d.rows*d.cols)
 	for r := range board {
 		for c := range board[r] {
 			sq := square{row: r, col: c}
@@ -110,38 +122,104 @@ func (d *Deduce) NextMove(ctx context.Context, st *protocol.State) (row, col int
 				continue
 			}
 			numbered = append(numbered, sq)
-			// if it contains a number and the number is same as the number of covered neighbours
-			// All those neighbours are mined
 			if board[sq.row][sq.col] == d.numOfCoveredNeighbours(board, sq) {
 				nbrs := d.neighbours(board, sq)
-				//mined := make([]bool, len(nbrs))
 				for _, nb := range nbrs {
 					if _, ok := d.minedSquares[nb]; ok {
 						continue
 					}
 					d.markMined(nb)
-					d.relaxNeighbours(board, nb)
+					relaxationSquares = append(relaxationSquares, nb)
 				}
 			}
 		}
 	}
-	// Now check for the safe squares
+
+	for _, relaxationSquare := range relaxationSquares {
+		d.relaxNeighbours(board, relaxationSquare)
+	}
+
 	for _, s := range numbered {
-		// if a numbered square is now 0 . all its neighbours are safe now
 		if board[s.row][s.col] == 0 {
 			nbrs := d.neighbours(board, s)
 			for _, nbr := range nbrs {
-				if d.checkCovered(board, nbr) {
+				_, mined := d.minedSquares[nbr]
+				if d.checkCovered(board, nbr) && !mined {
 					d.safeSquares.Push(nbr)
 				}
 			}
 		}
 	}
-	// return a safe move
-	if !d.safeSquares.IsEmpty() {
-		front, _ := d.safeSquares.Pop()
-		return front.row, front.col, nil
+	//d.printBoard(board)
+	for {
+		if !d.safeSquares.IsEmpty() {
+			front, _ := d.safeSquares.Pop()
+			if _, mined := d.minedSquares[front]; !mined {
+				return front.row, front.col, nil
+			}
+		} else {
+			break
+		}
 	}
 	//d.safeSquares.Print()
-	return 0, 0, nil
+
+	for i := 0; i < d.rows; i++ {
+		for j := 0; j < d.cols; j++ {
+			sq := square{row: i, col: j}
+			_, mined := d.minedSquares[sq]
+			if !d.containsNumb(board, sq) && board[i][j] != 0 && !mined {
+				return i, j, nil
+			}
+		}
+	}
+	return 0, 0, nil // cant reach here ,.. if it does ... God exists
+}
+
+// printBoard shows the board as the solver sees it.
+//
+//	.   uncovered, no mines around (0)
+//	1-8 number (after any relaxing you did)
+//	#   covered, unknown
+//	M   covered, marked as a mine by the solver
+//	X   mine shown by the board after a loss (-3)
+func (d *Deduce) printBoard(board [][]int) {
+	var b strings.Builder
+
+	b.WriteString("    ")
+	for c := range board[0] {
+		fmt.Fprintf(&b, "%2d ", c)
+	}
+	b.WriteString("\n    " + strings.Repeat("---", len(board[0])) + "\n")
+
+	for r, row := range board {
+		_, err := fmt.Fprintf(&b, "%2d |", r)
+		if err != nil {
+			return
+		}
+
+		for c, v := range row {
+			var ch string
+			switch {
+			case v == protocol.Covered:
+				if _, ok := d.minedSquares[square{row: r, col: c}]; ok {
+					ch = "M"
+				} else {
+					ch = "#"
+				}
+			case v == protocol.Mine:
+				ch = "X"
+			case v == 0:
+				ch = "."
+			default:
+				ch = fmt.Sprint(v)
+			}
+			_, err := fmt.Fprintf(&b, "%2s ", ch)
+			if err != nil {
+				return
+
+			}
+		}
+		b.WriteString("\n")
+	}
+	fmt.Print(b.String())
 }
