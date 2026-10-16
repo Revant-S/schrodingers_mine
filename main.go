@@ -43,11 +43,12 @@ func main() {
 	defer stop()
 
 	mux := http.NewServeMux()
+	solve := &solver.Deduce{}
 	mux.Handle("/", api.Handler(api.Config{
 		Name:               *name,
 		MoveBudget:         *budget,
 		InsecureSkipVerify: *insecure,
-		NewSolver:          func() solver.Solver { return solver.FirstCovered{} }, // swap in your solver here
+		NewSolver:          func() solver.Solver { return solve }, // swap in your solver here
 	}))
 
 	srv := &http.Server{
