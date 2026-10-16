@@ -96,25 +96,49 @@ func (d *Deduce) updateRelaxedSquares(board [][]int) {
 		board[sq.row][sq.col] = val
 	}
 }
-
 func (d *Deduce) NextMove(ctx context.Context, st *protocol.State) (row, col int, err error) {
 	if st.Moves == 0 {
 		return 0, 0, nil
 	}
 	board := st.Board
 	d.updateRelaxedSquares(board)
+
+	if sq, ok := d.popCoveredSafe(board); ok {
+		return sq.row, sq.col, nil
+	}
+
+	numbered, relaxationSquares := d.findMines(board)
+	d.relaxAll(board, relaxationSquares)
+	d.queueSafeSquares(board, numbered)
+
+	if sq, ok := d.popUnminedSafe(); ok {
+		return sq.row, sq.col, nil
+	}
+	if sq, ok := d.fallbackMove(board); ok {
+		return sq.row, sq.col, nil
+	}
+	return 0, 0, nil // cant reach here ,.. if it does ... God exists
+}
+
+// popCoveredSafe pops already calculated safe squares until it finds one that is still covered.
+func (d *Deduce) popCoveredSafe(board [][]int) (square, bool) {
 	for {
 		front, ok := d.safeSquares.Pop()
 		if !ok {
-			break
+			return square{}, false
 		}
 		if d.checkCovered(board, front) {
-			return front.row, front.col, nil
+			return front, true
 		}
 	}
+}
 
-	numbered := make([]square, 0, d.rows*d.cols)
-	relaxationSquares := make([]square, 0, d.rows*d.cols)
+// findMines collects the numbered squares and marks as mined the covered neighbours of every
+// number that equals its count of covered neighbours. It returns the numbered squares and the
+// newly mined squares, whose neighbours still need relaxing.
+func (d *Deduce) findMines(board [][]int) (numbered, relaxationSquares []square) {
+	numbered = make([]square, 0, d.rows*d.cols)
+	relaxationSquares = make([]square, 0, d.rows*d.cols)
 	for r := range board {
 		for c := range board[r] {
 			sq := square{row: r, col: c}
@@ -134,11 +158,18 @@ func (d *Deduce) NextMove(ctx context.Context, st *protocol.State) (row, col int
 			}
 		}
 	}
+	return numbered, relaxationSquares
+}
 
-	for _, relaxationSquare := range relaxationSquares {
+// relaxAll relaxes the neighbours of every given mined square.
+func (d *Deduce) relaxAll(board [][]int, mined []square) {
+	for _, relaxationSquare := range mined {
 		d.relaxNeighbours(board, relaxationSquare)
 	}
+}
 
+// queueSafeSquares pushes the covered, unmined neighbours of every numbered square that is now 0.
+func (d *Deduce) queueSafeSquares(board [][]int, numbered []square) {
 	for _, s := range numbered {
 		if board[s.row][s.col] == 0 {
 			nbrs := d.neighbours(board, s)
@@ -150,29 +181,34 @@ func (d *Deduce) NextMove(ctx context.Context, st *protocol.State) (row, col int
 			}
 		}
 	}
-	//d.printBoard(board)
+}
+
+// popUnminedSafe pops safe squares until it finds one that is not marked as mined.
+func (d *Deduce) popUnminedSafe() (square, bool) {
 	for {
 		if !d.safeSquares.IsEmpty() {
 			front, _ := d.safeSquares.Pop()
 			if _, mined := d.minedSquares[front]; !mined {
-				return front.row, front.col, nil
+				return front, true
 			}
 		} else {
-			break
+			return square{}, false
 		}
 	}
-	//d.safeSquares.Print()
+}
 
+// fallbackMove returns the first square in reading order that is not a number, not 0 and not mined.
+func (d *Deduce) fallbackMove(board [][]int) (square, bool) {
 	for i := 0; i < d.rows; i++ {
 		for j := 0; j < d.cols; j++ {
 			sq := square{row: i, col: j}
 			_, mined := d.minedSquares[sq]
 			if !d.containsNumb(board, sq) && board[i][j] != 0 && !mined {
-				return i, j, nil
+				return sq, true
 			}
 		}
 	}
-	return 0, 0, nil // cant reach here ,.. if it does ... God exists
+	return square{}, false
 }
 
 // printBoard shows the board as the solver sees it.
