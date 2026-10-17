@@ -1,10 +1,8 @@
-// Package solver is where the actual Minesweeper thinking goes.
-// Everything here is yours to write; FirstCovered is only a placeholder
-// so the server runs end to end.
-package solver
+package dummy
 
 import (
 	"Schrodingers_Mine/protocol"
+	"Schrodingers_Mine/solver"
 	"context"
 )
 
@@ -20,5 +18,5 @@ func (FirstCovered) NextMove(ctx context.Context, st *protocol.State) (int, int,
 			}
 		}
 	}
-	return 0, 0, ErrNoMove
+	return 0, 0, solver.ErrNoMove
 }
