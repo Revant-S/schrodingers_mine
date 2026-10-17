@@ -4,6 +4,7 @@ import (
 	"Schrodingers_Mine/api"
 	"Schrodingers_Mine/config"
 	"Schrodingers_Mine/solver"
+	"Schrodingers_Mine/solver/deduce"
 	"context"
 	"errors"
 	"flag"
@@ -43,7 +44,7 @@ func main() {
 	defer stop()
 
 	mux := http.NewServeMux()
-	solve := &solver.Deduce{}
+	solve := &deduce.Deduce{}
 	mux.Handle("/", api.Handler(api.Config{
 		Name:               *name,
 		MoveBudget:         *budget,
